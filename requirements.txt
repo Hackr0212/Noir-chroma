@@ -1,0 +1,12 @@
+speechrecognition
+pyaudio
+python-dotenv
+pyttsx3
+langchain-core
+langchain-deepseek
+soundfile
+sounddevice
+numpy
+streamlit
+chromadb>=0.4.0
+sentence-transformers
