@@ -1,1 +1,8 @@
+# Ignore environment file
 .env
+# Ignore rag_db folder
+rag_db/
+# Ignore piper folder
+piper/
+# Ignore virtual environment
+.venv/
