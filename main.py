@@ -13,6 +13,11 @@ def main():
     print("  //speak - Toggle text-to-speech for AI responses")
     print("  //test-mic - Test microphone")
     print("  //test-tts - Test text-to-speech")
+    print("  //test-pygame - Test pygame audio system")
+    print("  //volume <0-100> - Set TTS volume (e.g., //volume 75)")
+    print("  //pause - Pause current audio")
+    print("  //resume - Resume paused audio")
+    print("  //stop - Stop current audio")
     print("  //clear - Clear conversation history")
     print("  //help - Show this help again")
     print("\nStart chatting! (Text input is default)")
@@ -93,6 +98,29 @@ def handle_command(command, recognizer, tts, ai_client, voice_input_enabled, tts
     elif cmd == "//test-tts":
         test_tts(tts)
 
+    elif cmd == "//test-pygame":
+        test_pygame(tts)
+
+    elif cmd.startswith("//volume "):
+        try:
+            volume_str = cmd.split(" ", 1)[1]
+            volume = int(volume_str)
+            if 0 <= volume <= 100:
+                tts.set_volume(volume / 100.0)
+            else:
+                print("Volume must be between 0 and 100")
+        except (IndexError, ValueError):
+            print("Usage: //volume <0-100> (e.g., //volume 75)")
+
+    elif cmd == "//pause":
+        tts.pause_audio()
+
+    elif cmd == "//resume":
+        tts.unpause_audio()
+
+    elif cmd == "//stop":
+        tts.stop_audio()
+
     elif cmd == "//clear":
         ai_client.clear_conversation()
         print("Conversation history cleared!")
@@ -115,6 +143,11 @@ def show_help():
     print("  //speak - Toggle text-to-speech for AI responses")
     print("  //test-mic - Test microphone")
     print("  //test-tts - Test text-to-speech")
+    print("  //test-pygame - Test pygame audio system")
+    print("  //volume <0-100> - Set TTS volume")
+    print("  //pause - Pause current audio")
+    print("  //resume - Resume paused audio")
+    print("  //stop - Stop current audio")
     print("  //clear - Clear conversation history")
     print("  //help - Show this help")
 
@@ -167,6 +200,12 @@ def test_tts(tts):
     """Test text-to-speech functionality"""
     print("\nTesting text-to-speech...")
     tts.test_speech()
+
+
+def test_pygame(tts):
+    """Test pygame audio system"""
+    print("\nTesting pygame audio system...")
+    tts.test_pygame()
 
 
 if __name__ == "__main__":

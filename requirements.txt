@@ -4,9 +4,7 @@ python-dotenv
 pyttsx3
 langchain-core
 langchain-deepseek
-soundfile
-sounddevice
+pygame
 numpy
-streamlit
-chromadb>=0.4.0
+chromadb
 sentence-transformers
