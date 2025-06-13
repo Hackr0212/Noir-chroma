@@ -25,8 +25,8 @@ class TextToSpeech:
             print(f"❌ Failed to initialize pygame mixer: {e}")
             raise
 
-        # PiperTTS configuration
-        self.piper_exe = os.path.join("piper", "piper.exe")
+        # PiperTTS configuration - Linux version
+        self.piper_exe = os.path.join("piper", "piper")  # Your specific setup
         self.piper_model = None
         self.available_models = []
 
@@ -35,24 +35,39 @@ class TextToSpeech:
     def initialize_piper(self):
         """Initialize PiperTTS and find available models"""
         try:
+            # Test if piper executable exists and is accessible
             if not os.path.exists(self.piper_exe):
                 print(f"❌ Piper executable not found at: {self.piper_exe}")
-                print("Please ensure piper.exe is in the 'piper' folder")
+                return False
+                
+            if not os.access(self.piper_exe, os.X_OK):
+                print(f"❌ Piper executable is not executable: {self.piper_exe}")
+                print("Run: chmod +x piper/piper")
+                return False
+
+            try:
+                result = subprocess.run([self.piper_exe, '--help'], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.returncode != 0:
+                    print(f"❌ Piper executable test failed: {self.piper_exe}")
+                    return False
+            except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+                print(f"❌ Piper executable not working: {e}")
                 return False
 
             print(f"✅ Found Piper executable: {self.piper_exe}")
 
+            # Look for model files in the piper directory
             piper_dir = "piper"
             model_files = []
 
-            for file in os.listdir(piper_dir):
-                if file.endswith('.onnx'):
-                    model_files.append(file)
+            if os.path.exists(piper_dir):
+                for file in os.listdir(piper_dir):
+                    if file.endswith('.onnx'):
+                        model_files.append(file)
 
             if not model_files:
                 print("⚠️ No .onnx model files found in piper directory")
-                print("Please download a voice model from: https://github.com/rhasspy/piper/releases")
-                print("Example models: en_US-lessac-medium.onnx, en_US-amy-medium.onnx")
                 return False
 
             self.piper_model = os.path.join(piper_dir, model_files[0])
@@ -66,6 +81,34 @@ class TextToSpeech:
         except Exception as e:
             print(f"Error initializing Piper: {e}")
             return False
+
+    def _suggest_piper_installation(self):
+        """Suggest how to install Piper on Linux"""
+        print("\n📦 To install Piper TTS on Linux:")
+        print("1. Download from GitHub releases:")
+        print("   wget https://github.com/rhasspy/piper/releases/latest/download/piper_linux_x86_64.tar.gz")
+        print("   tar -xzf piper_linux_x86_64.tar.gz")
+        print("   # This creates a 'piper' directory with the executable")
+        print("\n2. Or install via package manager (if available):")
+        print("   # For Ubuntu/Debian: sudo apt install piper-tts")
+        print("   # For Arch: yay -S piper-tts")
+        print("\n3. Or build from source:")
+        print("   git clone https://github.com/rhasspy/piper.git")
+        print("   cd piper && make")
+
+    def _suggest_model_download(self):
+        """Suggest how to download voice models"""
+        print("\n🎤 To download voice models:")
+        print("1. Visit: https://github.com/rhasspy/piper/releases")
+        print("2. Download a voice model (e.g., en_US-lessac-medium.onnx)")
+        print("3. Place it in one of these directories:")
+        print("   - ./piper/")
+        print("   - ./models/")
+        print("   - ~/.local/share/piper/")
+        print("\nPopular English models:")
+        print("   - en_US-lessac-medium.onnx (clear female voice)")
+        print("   - en_US-danny-low.onnx (male voice, smaller file)")
+        print("   - en_US-amy-medium.onnx (female voice)")
 
     def extract_speech_content(self, text: str) -> Optional[str]:
         """Extract only the speech content from LLM output"""
@@ -302,7 +345,7 @@ class TextToSpeech:
     def test_piper(self) -> bool:
         """Test if PiperTTS is working"""
         try:
-            if not os.path.exists(self.piper_exe):
+            if not self.piper_exe:
                 print("❌ Piper executable not found")
                 return False
 
@@ -314,7 +357,7 @@ class TextToSpeech:
             print(f"Executable: {self.piper_exe}")
             print(f"Model: {os.path.basename(self.piper_model)}")
 
-            test_text = "Piper TTS test successful! This is Noir speaking."
+            test_text = "Piper TTS test successful! This is working on Linux."
             print(f"Testing with: '{test_text}'")
 
             audio_file_path = self.generate_speech_audio_file(test_text)
@@ -337,6 +380,7 @@ class TextToSpeech:
     def test_speech(self):
         """Test text-to-speech functionality"""
         print("\n=== Testing Text-to-Speech ===")
+        print(f"Platform: {platform.system()} {platform.release()}")
 
         # Test pygame
         if self.test_pygame():
@@ -384,6 +428,38 @@ class TextToSpeech:
         except Exception as e:
             print(f"Error resuming audio: {e}")
 
+    def check_system_requirements(self):
+        """Check Linux system requirements and suggest fixes"""
+        print("\n=== System Check ===")
+        print(f"Platform: {platform.system()} {platform.release()}")
+        
+        # Check audio system
+        try:
+            result = subprocess.run(['pulseaudio', '--check'], capture_output=True)
+            if result.returncode == 0:
+                print("✅ PulseAudio is running")
+            else:
+                print("⚠️ PulseAudio might not be running")
+        except FileNotFoundError:
+            print("⚠️ PulseAudio not found, checking ALSA...")
+            try:
+                result = subprocess.run(['aplay', '-l'], capture_output=True)
+                if result.returncode == 0:
+                    print("✅ ALSA detected")
+                else:
+                    print("❌ No audio system detected")
+            except FileNotFoundError:
+                print("❌ No audio system found")
+
+        # Check dependencies
+        required_packages = ['pygame', 'soundfile', 'numpy']
+        for package in required_packages:
+            try:
+                __import__(package)
+                print(f"✅ {package} installed")
+            except ImportError:
+                print(f"❌ {package} not installed - run: pip install {package}")
+
     def __del__(self):
         """Cleanup when object is destroyed"""
         try:
@@ -391,3 +467,22 @@ class TextToSpeech:
             pygame.mixer.quit()
         except:
             pass
+
+
+# Example usage and testing
+if __name__ == "__main__":
+    tts = TextToSpeech()
+    
+    # Run system check
+    tts.check_system_requirements()
+    
+    # Test the system
+    tts.test_speech()
+    
+    # Test speech extraction
+    tts.test_speech_extraction()
+    
+    # Example usage
+    test_text = "🗣️ 'Hello from Linux! This is a test of the text-to-speech system.'"
+    print(f"\nTesting with: {test_text}")
+    tts.speak(test_text)

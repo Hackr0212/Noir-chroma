@@ -1,4 +1,3 @@
-import pygame_gui
 import pygame
 import sys
 import threading
@@ -29,6 +28,207 @@ except ImportError as e:
     LIVE2D_AVAILABLE = False
 
 
+class Button:
+    def __init__(self, x, y, width, height, text, font, color=(70, 70, 80), hover_color=(90, 90, 100), text_color=(255, 255, 255)):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.text = text
+        self.font = font
+        self.color = color
+        self.hover_color = hover_color
+        self.text_color = text_color
+        self.is_hovered = False
+        self.is_pressed = False
+    
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if self.rect.collidepoint(event.pos):
+                self.is_pressed = True
+                return True
+        elif event.type == pygame.MOUSEBUTTONUP:
+            if self.is_pressed and self.rect.collidepoint(event.pos):
+                self.is_pressed = False
+                return True
+            self.is_pressed = False
+        elif event.type == pygame.MOUSEMOTION:
+            self.is_hovered = self.rect.collidepoint(event.pos)
+        return False
+    
+    def draw(self, screen):
+        color = self.hover_color if self.is_hovered else self.color
+        pygame.draw.rect(screen, color, self.rect)
+        pygame.draw.rect(screen, (120, 120, 120), self.rect, 2)
+        
+        text_surface = self.font.render(self.text, True, self.text_color)
+        text_rect = text_surface.get_rect(center=self.rect.center)
+        screen.blit(text_surface, text_rect)
+    
+    def set_text(self, text):
+        self.text = text
+
+
+class TextBox:
+    def __init__(self, x, y, width, height, font, max_length=500):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.font = font
+        self.text = ""
+        self.max_length = max_length
+        self.active = False
+        self.cursor_pos = 0
+        self.cursor_visible = True
+        self.cursor_timer = 0
+        self.scroll_offset = 0
+    
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            self.active = self.rect.collidepoint(event.pos)
+        elif event.type == pygame.KEYDOWN and self.active:
+            if event.key == pygame.K_RETURN:
+                return True
+            elif event.key == pygame.K_BACKSPACE:
+                if self.cursor_pos > 0:
+                    self.text = self.text[:self.cursor_pos-1] + self.text[self.cursor_pos:]
+                    self.cursor_pos -= 1
+            elif event.key == pygame.K_DELETE:
+                if self.cursor_pos < len(self.text):
+                    self.text = self.text[:self.cursor_pos] + self.text[self.cursor_pos+1:]
+            elif event.key == pygame.K_LEFT:
+                self.cursor_pos = max(0, self.cursor_pos - 1)
+            elif event.key == pygame.K_RIGHT:
+                self.cursor_pos = min(len(self.text), self.cursor_pos + 1)
+            elif event.key == pygame.K_HOME:
+                self.cursor_pos = 0
+            elif event.key == pygame.K_END:
+                self.cursor_pos = len(self.text)
+            elif event.unicode.isprintable() and len(self.text) < self.max_length:
+                self.text = self.text[:self.cursor_pos] + event.unicode + self.text[self.cursor_pos:]
+                self.cursor_pos += 1
+        return False
+    
+    def update(self, dt):
+        self.cursor_timer += dt
+        if self.cursor_timer >= 500:  # Blink every 500ms
+            self.cursor_visible = not self.cursor_visible
+            self.cursor_timer = 0
+    
+    def draw(self, screen):
+        # Draw background
+        color = (50, 50, 60) if self.active else (40, 40, 50)
+        pygame.draw.rect(screen, color, self.rect)
+        pygame.draw.rect(screen, (100, 100, 110) if self.active else (80, 80, 90), self.rect, 2)
+        
+        # Draw text
+        if self.text:
+            text_surface = self.font.render(self.text, True, (255, 255, 255))
+            text_rect = text_surface.get_rect()
+            text_rect.left = self.rect.left + 5
+            text_rect.centery = self.rect.centery
+            
+            # Handle horizontal scrolling
+            if text_rect.width > self.rect.width - 10:
+                self.scroll_offset = max(0, text_rect.width - self.rect.width + 20)
+                text_rect.left -= self.scroll_offset
+            
+            # Clip text to textbox
+            clip_rect = self.rect.copy()
+            clip_rect.width -= 10
+            clip_rect.left += 5
+            screen.set_clip(clip_rect)
+            screen.blit(text_surface, text_rect)
+            screen.set_clip(None)
+        
+        # Draw cursor
+        if self.active and self.cursor_visible:
+            cursor_text = self.text[:self.cursor_pos]
+            cursor_width = self.font.size(cursor_text)[0] if cursor_text else 0
+            cursor_x = self.rect.left + 5 + cursor_width - self.scroll_offset
+            if self.rect.left + 5 <= cursor_x <= self.rect.right - 5:
+                pygame.draw.line(screen, (255, 255, 255), 
+                               (cursor_x, self.rect.top + 5), 
+                               (cursor_x, self.rect.bottom - 5), 2)
+    
+    def get_text(self):
+        return self.text
+    
+    def set_text(self, text):
+        self.text = text
+        self.cursor_pos = len(text)
+    
+    def clear(self):
+        self.text = ""
+        self.cursor_pos = 0
+
+
+class ScrollableTextArea:
+    def __init__(self, x, y, width, height, font):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.font = font
+        self.lines = []
+        self.scroll_offset = 0
+        self.line_height = font.get_height() + 2
+        self.max_visible_lines = height // self.line_height
+    
+    def add_line(self, text, color=(255, 255, 255)):
+        # Word wrap long lines
+        words = text.split(' ')
+        current_line = ""
+        
+        for word in words:
+            test_line = current_line + (" " if current_line else "") + word
+            if self.font.size(test_line)[0] <= self.rect.width - 20:
+                current_line = test_line
+            else:
+                if current_line:
+                    self.lines.append((current_line, color))
+                current_line = word
+        
+        if current_line:
+            self.lines.append((current_line, color))
+        
+        # Auto-scroll to bottom
+        if len(self.lines) > self.max_visible_lines:
+            self.scroll_offset = len(self.lines) - self.max_visible_lines
+    
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEWHEEL and self.rect.collidepoint(pygame.mouse.get_pos()):
+            self.scroll_offset -= event.y * 3
+            self.scroll_offset = max(0, min(self.scroll_offset, len(self.lines) - self.max_visible_lines))
+    
+    def draw(self, screen):
+        # Draw background
+        pygame.draw.rect(screen, (20, 20, 30), self.rect)
+        pygame.draw.rect(screen, (60, 60, 70), self.rect, 2)
+        
+        # Draw lines
+        clip_rect = self.rect.copy()
+        clip_rect.width -= 10
+        clip_rect.height -= 10
+        clip_rect.left += 5
+        clip_rect.top += 5
+        screen.set_clip(clip_rect)
+        
+        start_line = max(0, self.scroll_offset)
+        end_line = min(len(self.lines), start_line + self.max_visible_lines)
+        
+        for i in range(start_line, end_line):
+            line_text, line_color = self.lines[i]
+            y_pos = self.rect.top + 5 + (i - start_line) * self.line_height
+            text_surface = self.font.render(line_text, True, line_color)
+            screen.blit(text_surface, (self.rect.left + 5, y_pos))
+        
+        screen.set_clip(None)
+        
+        # Draw scrollbar if needed
+        if len(self.lines) > self.max_visible_lines:
+            scrollbar_height = max(20, (self.max_visible_lines / len(self.lines)) * self.rect.height)
+            scrollbar_y = self.rect.top + (self.scroll_offset / len(self.lines)) * self.rect.height
+            scrollbar_rect = pygame.Rect(self.rect.right - 10, scrollbar_y, 8, scrollbar_height)
+            pygame.draw.rect(screen, (100, 100, 100), scrollbar_rect)
+    
+    def clear(self):
+        self.lines = []
+        self.scroll_offset = 0
+
+
 class VTuberChatApp:
     def __init__(self):
         # Initialize pygame
@@ -39,13 +239,15 @@ class VTuberChatApp:
         self.screen = pygame.display.set_mode((self.WIDTH, self.HEIGHT))
         pygame.display.set_caption("Noir VTuber Chat Assistant")
 
-        # UI Manager
-        self.manager = pygame_gui.UIManager((self.WIDTH, self.HEIGHT))
-
         # Colors
         self.BG_COLOR = (30, 30, 40)
         self.CHAT_BG = (20, 20, 30)
         self.INPUT_BG = (40, 40, 50)
+
+        # Fonts
+        self.font = pygame.font.Font(None, 24)
+        self.small_font = pygame.font.Font(None, 20)
+        self.title_font = pygame.font.Font(None, 32)
 
         # Initialize all instance variables FIRST
         self.conversation_history = []
@@ -68,273 +270,213 @@ class VTuberChatApp:
         self.stop_listening = False
         self.is_listening = False
 
-        # Create UI elements (now safe to call update_status_indicators)
+        # Create UI elements
         self.create_ui()
 
         # Initialize components
         self.initialize_components()
 
-        # Status indicators
-        self.update_status_indicators()
-
         # Welcome message
-        self.add_message("System", "🎭 Noir VTuber Chat Assistant initialized!")
-        self.add_message("System", "💡 Commands: //voice, //speak, //avatar, //clear, //volume [0-100], //exit")
+        self.add_message("System", "🎭 Noir VTuber Chat Assistant initialized!", (255, 170, 85))
+        self.add_message("System", "💡 Commands: //voice, //speak, //avatar, //clear, //volume [0-100], //exit", (255, 170, 85))
 
         if LIVE2D_AVAILABLE:
-            self.add_message("System", "🎨 Live2D avatar support available! Click 'Avatar: OFF' to enable.")
+            self.add_message("System", "🎨 Live2D avatar support available! Click 'Avatar: OFF' to enable.", (255, 170, 85))
 
     def initialize_components(self):
         """Initialize core components with error handling"""
         try:
             self.recognizer = SpeechRecognizer()
-            self.add_message("System", "🎤 Speech recognizer initialized")
+            self.add_message("System", "🎤 Speech recognizer initialized", (85, 255, 85))
         except Exception as e:
-            self.add_message("System", f"❌ Speech recognizer error: {e}", is_error=True)
+            self.add_message("System", f"❌ Speech recognizer error: {e}", (255, 85, 85))
             self.recognizer = None
 
         try:
             self.tts = TextToSpeech()
-            self.add_message("System", "🔊 Text-to-speech initialized")
+            self.add_message("System", "🔊 Text-to-speech initialized", (85, 255, 85))
         except Exception as e:
-            self.add_message("System", f"❌ TTS error: {e}", is_error=True)
+            self.add_message("System", f"❌ TTS error: {e}", (255, 85, 85))
             self.tts = None
 
         try:
             self.ai_client = DeepSeekClient()
-            self.add_message("System", "🤖 AI client initialized")
+            self.add_message("System", "🤖 AI client initialized", (85, 255, 85))
         except Exception as e:
-            self.add_message("System", f"❌ AI client error: {e}", is_error=True)
+            self.add_message("System", f"❌ AI client error: {e}", (255, 85, 85))
             self.ai_client = None
 
     def create_ui(self):
         """Create all UI elements"""
-        # Chat history panel (larger)
-        self.chat_history = pygame_gui.elements.UITextBox(
-            "",
-            relative_rect=pygame.Rect(20, 20, 860, 650),
-            manager=self.manager
-        )
-        self.chat_history.set_active_effect(pygame_gui.TEXT_EFFECT_TYPING_APPEAR)
-
+        # Chat history area
+        self.chat_area = ScrollableTextArea(20, 20, 860, 650, self.font)
+        
         # Input text box
-        self.input_box = pygame_gui.elements.UITextEntryLine(
-            relative_rect=pygame.Rect(20, 690, 700, 40),
-            manager=self.manager
-        )
-        self.input_box.set_text_length_limit(500)
-
+        self.input_box = TextBox(20, 690, 700, 40, self.font)
+        
         # Send button
-        self.send_btn = pygame_gui.elements.UIButton(
-            relative_rect=pygame.Rect(730, 690, 150, 40),
-            text="Send Message",
-            manager=self.manager
-        )
-
+        self.send_btn = Button(730, 690, 150, 40, "Send Message", self.font)
+        
         # Control buttons
         button_width = 180
         button_height = 35
         button_y = 750
-
+        
         # First row of buttons
-        self.voice_btn = pygame_gui.elements.UIButton(
-            relative_rect=pygame.Rect(20, button_y, button_width, button_height),
-            text="Voice Input: OFF",
-            manager=self.manager
-        )
-
-        self.tts_btn = pygame_gui.elements.UIButton(
-            relative_rect=pygame.Rect(210, button_y, button_width, button_height),
-            text="TTS: OFF",
-            manager=self.manager
-        )
-
-        self.avatar_btn = pygame_gui.elements.UIButton(
-            relative_rect=pygame.Rect(400, button_y, button_width, button_height),
-            text="Avatar: OFF",
-            manager=self.manager
-        )
-
-        self.emotion_btn = pygame_gui.elements.UIButton(
-            relative_rect=pygame.Rect(590, button_y, button_width, button_height),
-            text="Test Emotion",
-            manager=self.manager
-        )
-
+        self.voice_btn = Button(20, button_y, button_width, button_height, "Voice Input: OFF", self.small_font)
+        self.tts_btn = Button(210, button_y, button_width, button_height, "TTS: OFF", self.small_font)
+        self.avatar_btn = Button(400, button_y, button_width, button_height, "Avatar: OFF", self.small_font)
+        self.emotion_btn = Button(590, button_y, button_width, button_height, "Test Emotion", self.small_font)
+        
         # Second row of buttons
         button_y += 45
-
-        self.clear_btn = pygame_gui.elements.UIButton(
-            relative_rect=pygame.Rect(20, button_y, button_width, button_height),
-            text="Clear History",
-            manager=self.manager
-        )
-
-        self.volume_btn = pygame_gui.elements.UIButton(
-            relative_rect=pygame.Rect(210, button_y, button_width, button_height),
-            text="Volume: 75%",
-            manager=self.manager
-        )
-
-        self.avatar_window_btn = pygame_gui.elements.UIButton(
-            relative_rect=pygame.Rect(400, button_y, button_width, button_height),
-            text="Show Avatar Window",
-            manager=self.manager
-        )
-
-        self.exit_btn = pygame_gui.elements.UIButton(
-            relative_rect=pygame.Rect(590, button_y, button_width, button_height),
-            text="Exit Application",
-            manager=self.manager
-        )
-
-        # Status and control panel (larger)
-        self.status_panel = pygame_gui.elements.UITextBox(
-            "Status: Initializing...",
-            relative_rect=pygame.Rect(900, 20, 480, 820),
-            manager=self.manager
-        )
-
+        self.clear_btn = Button(20, button_y, button_width, button_height, "Clear History", self.small_font)
+        self.volume_btn = Button(210, button_y, button_width, button_height, "Volume: 75%", self.small_font)
+        self.avatar_window_btn = Button(400, button_y, button_width, button_height, "Show Avatar Window", self.small_font)
+        self.exit_btn = Button(590, button_y, button_width, button_height, "Exit Application", self.small_font)
+        
+        # Status area
+        self.status_area = ScrollableTextArea(900, 20, 480, 820, self.small_font)
+        
         # Voice activity indicator
-        self.voice_indicator = pygame_gui.elements.UIPanel(
-            relative_rect=pygame.Rect(735, 695, 15, 15),
-            manager=self.manager
-        )
-        self.voice_indicator.background_colour = pygame.Color(200, 50, 50)
-
-    def add_message(self, sender, message, is_error=False):
-        """Add a message to the chat history"""
-        timestamp = time.strftime("%H:%M:%S")
-
-        # Format message with color coding
-        if is_error:
-            color = "#FF5555"
-        elif sender == "AI":
-            color = "#55AAFF"
-        elif sender == "You":
-            color = "#55FF55"
-        else:  # System
-            color = "#FFAA55"
-
-        formatted_msg = f'<font color="#888888">[{timestamp}]</font> <font color="{color}"><b>{sender}:</b></font> {message}'
-
-        # Add to conversation history
-        self.conversation_history.append(formatted_msg)
-
-        # Update chat display (show last 30 messages)
-        display_text = "<br>".join(self.conversation_history[-30:])
-        self.chat_history.set_text(display_text)
-
-    def update_status_indicators(self):
-        """Update status indicators and button texts"""
-        # Update button texts
-        self.voice_btn.set_text(f"Voice Input: {'ON' if self.voice_input_enabled else 'OFF'}")
-        self.tts_btn.set_text(f"TTS: {'ON' if self.tts_enabled else 'OFF'}")
-
-        avatar_status = "INIT" if self.avatar_initializing else ("ON" if self.avatar_enabled else "OFF")
-        self.avatar_btn.set_text(f"Avatar: {avatar_status}")
-
-        self.avatar_window_btn.set_text("Hide Avatar" if self.avatar_display_running else "Show Avatar Window")
-
-        # Build comprehensive status text
-        status_lines = [
-            "<b>🎭 NOIR VTUBER STATUS</b>",
-            "<br>",
-            "<b>Core Components:</b>",
-            f"🎤 Voice Input: {'<font color=#55FF55>ENABLED</font>' if self.voice_input_enabled else '<font color=#FF5555>DISABLED</font>'}",
-            f"🔊 Text-to-Speech: {'<font color=#55FF55>ENABLED</font>' if self.tts_enabled else '<font color=#FF5555>DISABLED</font>'}",
-            f"🤖 AI Client: {'<font color=#55FF55>READY</font>' if hasattr(self, 'ai_client') and self.ai_client else '<font color=#FF5555>ERROR</font>'}",
-            "<br>",
-            "<b>Avatar System:</b>"
+        self.voice_indicator_rect = pygame.Rect(735, 695, 15, 30)
+        self.voice_indicator_active = False
+        
+        # All UI elements for easy event handling
+        self.buttons = [
+            self.send_btn, self.voice_btn, self.tts_btn, self.avatar_btn,
+            self.emotion_btn, self.clear_btn, self.volume_btn, 
+            self.avatar_window_btn, self.exit_btn
         ]
 
+    def add_message(self, sender, message, color=None):
+        """Add a message to the chat history"""
+        timestamp = time.strftime("%H:%M:%S")
+        
+        # Default colors based on sender
+        if color is None:
+            if sender == "AI":
+                color = (85, 170, 255)
+            elif sender == "You":
+                color = (85, 255, 85)
+            elif sender == "System":
+                color = (255, 170, 85)
+            else:
+                color = (255, 255, 255)
+        
+        formatted_msg = f"[{timestamp}] {sender}: {message}"
+        self.chat_area.add_line(formatted_msg, color)
+        
+        # Keep conversation history for AI
+        self.conversation_history.append(formatted_msg)
+
+    def update_status_display(self):
+        """Update the status display area"""
+        self.status_area.clear()
+        
+        # Title
+        self.status_area.add_line("🎭 NOIR VTUBER STATUS", (255, 255, 255))
+        self.status_area.add_line("", (255, 255, 255))
+        
+        # Core components
+        self.status_area.add_line("Core Components:", (200, 200, 200))
+        voice_status = "ENABLED" if self.voice_input_enabled else "DISABLED"
+        voice_color = (85, 255, 85) if self.voice_input_enabled else (255, 85, 85)
+        self.status_area.add_line(f"🎤 Voice Input: {voice_status}", voice_color)
+        
+        tts_status = "ENABLED" if self.tts_enabled else "DISABLED"
+        tts_color = (85, 255, 85) if self.tts_enabled else (255, 85, 85)
+        self.status_area.add_line(f"🔊 Text-to-Speech: {tts_status}", tts_color)
+        
+        ai_status = "READY" if hasattr(self, 'ai_client') and self.ai_client else "ERROR"
+        ai_color = (85, 255, 85) if hasattr(self, 'ai_client') and self.ai_client else (255, 85, 85)
+        self.status_area.add_line(f"🤖 AI Client: {ai_status}", ai_color)
+        
+        self.status_area.add_line("", (255, 255, 255))
+        
+        # Avatar system
+        self.status_area.add_line("Avatar System:", (200, 200, 200))
         if LIVE2D_AVAILABLE:
             if self.avatar_initializing:
-                status_lines.append("🎨 Avatar: <font color=#FFAA55>INITIALIZING...</font>")
+                self.status_area.add_line("🎨 Avatar: INITIALIZING...", (255, 170, 85))
             elif self.avatar_enabled:
                 avatar_running = is_avatar_running()
-                status_lines.append(
-                    f"🎨 Avatar: {'<font color=#55FF55>RUNNING</font>' if avatar_running else '<font color=#FFAA55>ENABLED</font>'}")
-                status_lines.append(
-                    f"🖥️ Display: {'<font color=#55FF55>ACTIVE</font>' if self.avatar_display_running else '<font color=#FF5555>INACTIVE</font>'}")
-
-                # Get detailed avatar status
-                if hasattr(self, 'last_avatar_status') and self.last_avatar_status:
-                    avatar_info = self.last_avatar_status
-                    status_lines.extend([
-                        f"📁 Model: {'<font color=#55FF55>LOADED</font>' if avatar_info.get('initialized') else '<font color=#FF5555>ERROR</font>'}",
-                        f"🧵 Thread: {'<font color=#55FF55>ALIVE</font>' if avatar_info.get('thread_alive') else '<font color=#FF5555>DEAD</font>'}"
-                    ])
+                avatar_status = "RUNNING" if avatar_running else "ENABLED"
+                avatar_color = (85, 255, 85) if avatar_running else (255, 170, 85)
+                self.status_area.add_line(f"🎨 Avatar: {avatar_status}", avatar_color)
+                
+                display_status = "ACTIVE" if self.avatar_display_running else "INACTIVE"
+                display_color = (85, 255, 85) if self.avatar_display_running else (255, 85, 85)
+                self.status_area.add_line(f"🖥️ Display: {display_status}", display_color)
             else:
-                status_lines.append("🎨 Avatar: <font color=#FF5555>DISABLED</font>")
-
-            # Model path info
-            try:
-                model_path = getattr(config, 'LIVE2D_MODEL_PATH', 'models/noir_model')
-                status_lines.append(f"📂 Model Path: {model_path}")
-            except:
-                status_lines.append("📂 Model Path: <font color=#FF5555>NOT SET</font>")
+                self.status_area.add_line("🎨 Avatar: DISABLED", (255, 85, 85))
         else:
-            status_lines.append("🎨 Live2D: <font color=#FF5555>NOT AVAILABLE</font>")
-
+            self.status_area.add_line("🎨 Live2D: NOT AVAILABLE", (255, 85, 85))
+        
+        self.status_area.add_line("", (255, 255, 255))
+        
         # Performance info
-        status_lines.extend([
-            "<br>",
-            "<b>Performance:</b>",
-            f"💬 Messages: {len(self.conversation_history)}",
-            f"🔄 Chat History: {len(self.chat_messages)}",
-            f"🔄 Listening: {'<font color=#55FF55>ACTIVE</font>' if self.is_listening else '<font color=#FF5555>INACTIVE</font>'}",
-            f"🖱️ Mouse: {self.last_mouse_pos[0]}, {self.last_mouse_pos[1]}"
-        ])
-
+        self.status_area.add_line("Performance:", (200, 200, 200))
+        self.status_area.add_line(f"💬 Messages: {len(self.conversation_history)}", (255, 255, 255))
+        self.status_area.add_line(f"🔄 Chat History: {len(self.chat_messages)}", (255, 255, 255))
+        
+        listen_status = "ACTIVE" if self.is_listening else "INACTIVE"
+        listen_color = (85, 255, 85) if self.is_listening else (255, 85, 85)
+        self.status_area.add_line(f"🔄 Listening: {listen_status}", listen_color)
+        
+        self.status_area.add_line(f"🖱️ Mouse: {self.last_mouse_pos[0]}, {self.last_mouse_pos[1]}", (255, 255, 255))
+        
+        self.status_area.add_line("", (255, 255, 255))
+        
         # Commands help
-        status_lines.extend([
-            "<br>",
-            "<b>💡 Available Commands:</b>",
+        self.status_area.add_line("💡 Available Commands:", (200, 200, 200))
+        commands = [
             "//voice - Toggle voice input",
-            "//speak - Toggle text-to-speech",
+            "//speak - Toggle text-to-speech", 
             "//avatar - Toggle avatar system",
             "//clear - Clear chat history",
             "//volume [0-100] - Set TTS volume",
-            "//emotion [happy/sad/angry] - Test avatar emotion",
+            "//emotion [happy/sad/angry] - Test emotion",
             "//exit - Exit application"
-        ])
-
-        self.status_panel.set_text("<br>".join(status_lines))
+        ]
+        for cmd in commands:
+            self.status_area.add_line(cmd, (180, 180, 180))
 
     def initialize_avatar_async(self):
         """Initialize avatar in a separate thread"""
         if not LIVE2D_AVAILABLE:
-            self.add_message("System", "❌ Live2D not available", is_error=True)
+            self.add_message("System", "❌ Live2D not available", (255, 85, 85))
             return
 
         if self.avatar_initializing:
-            self.add_message("System", "⚠️ Avatar already initializing", is_error=True)
+            self.add_message("System", "⚠️ Avatar already initializing", (255, 170, 85))
             return
 
         self.avatar_initializing = True
-        self.update_status_indicators()
+        self.avatar_btn.set_text("Avatar: INIT")
 
         def init_thread():
             try:
-                self.add_message("System", "🎭 Initializing Live2D avatar...")
+                self.add_message("System", "🎭 Initializing Live2D avatar...", (255, 170, 85))
 
                 # Initialize avatar with window size
                 success = initialize_live2d_avatar(window_size=(800, 600))
 
                 if success:
-                    self.add_message("System", "✅ Live2D avatar initialized successfully!")
+                    self.add_message("System", "✅ Live2D avatar initialized successfully!", (85, 255, 85))
                     self.avatar_enabled = True
+                    self.avatar_btn.set_text("Avatar: ON")
                 else:
-                    self.add_message("System", "❌ Failed to initialize Live2D avatar", is_error=True)
+                    self.add_message("System", "❌ Failed to initialize Live2D avatar", (255, 85, 85))
                     self.avatar_enabled = False
+                    self.avatar_btn.set_text("Avatar: OFF")
 
             except Exception as e:
-                self.add_message("System", f"❌ Avatar initialization error: {e}", is_error=True)
+                self.add_message("System", f"❌ Avatar initialization error: {e}", (255, 85, 85))
                 self.avatar_enabled = False
+                self.avatar_btn.set_text("Avatar: OFF")
             finally:
                 self.avatar_initializing = False
-                self.update_status_indicators()
 
         self.avatar_init_thread = threading.Thread(target=init_thread, daemon=True)
         self.avatar_init_thread.start()
@@ -342,22 +484,22 @@ class VTuberChatApp:
     def start_avatar_display_async(self):
         """Start avatar display window in separate thread"""
         if not self.avatar_enabled:
-            self.add_message("System", "❌ Avatar not initialized", is_error=True)
+            self.add_message("System", "❌ Avatar not initialized", (255, 85, 85))
             return
 
         if self.avatar_display_running:
-            self.add_message("System", "⚠️ Avatar display already running")
+            self.add_message("System", "⚠️ Avatar display already running", (255, 170, 85))
             return
 
         def display_thread():
             try:
-                self.add_message("System", "🖥️ Starting avatar display window...")
+                self.add_message("System", "🖥️ Starting avatar display window...", (255, 170, 85))
                 success = start_live2d_display()
 
                 if success:
                     self.avatar_display_running = True
-                    self.add_message("System", "✅ Avatar display started!")
-                    self.update_status_indicators()
+                    self.add_message("System", "✅ Avatar display started!", (85, 255, 85))
+                    self.avatar_window_btn.set_text("Hide Avatar")
 
                     # Monitor avatar status
                     while self.avatar_display_running and is_avatar_running():
@@ -365,15 +507,15 @@ class VTuberChatApp:
                         time.sleep(1.0)
 
                     self.avatar_display_running = False
-                    self.add_message("System", "🖥️ Avatar display stopped")
-                    self.update_status_indicators()
+                    self.add_message("System", "🖥️ Avatar display stopped", (255, 170, 85))
+                    self.avatar_window_btn.set_text("Show Avatar Window")
                 else:
-                    self.add_message("System", "❌ Failed to start avatar display", is_error=True)
+                    self.add_message("System", "❌ Failed to start avatar display", (255, 85, 85))
 
             except Exception as e:
-                self.add_message("System", f"❌ Avatar display error: {e}", is_error=True)
+                self.add_message("System", f"❌ Avatar display error: {e}", (255, 85, 85))
                 self.avatar_display_running = False
-                self.update_status_indicators()
+                self.avatar_window_btn.set_text("Show Avatar Window")
 
         threading.Thread(target=display_thread, daemon=True).start()
 
@@ -392,7 +534,7 @@ class VTuberChatApp:
             return
 
         if not hasattr(self, 'recognizer') or not self.recognizer:
-            self.add_message("System", "❌ Speech recognizer not available", is_error=True)
+            self.add_message("System", "❌ Speech recognizer not available", (255, 85, 85))
             return
 
         self.is_listening = True
@@ -402,16 +544,16 @@ class VTuberChatApp:
             while not self.stop_listening:
                 if self.voice_input_enabled:
                     try:
-                        self.voice_indicator.background_colour = pygame.Color(50, 200, 50)
+                        self.voice_indicator_active = True
                         text = self.recognizer.listen_with_voice_detection()
-                        self.voice_indicator.background_colour = pygame.Color(200, 50, 50)
+                        self.voice_indicator_active = False
 
                         if text and not self.stop_listening:
                             # Add to chat and process
                             self.add_message("You", text)
                             self.process_user_input(text)
                     except Exception as e:
-                        self.add_message("System", f"Voice recognition error: {e}", is_error=True)
+                        self.add_message("System", f"Voice recognition error: {e}", (255, 85, 85))
                         time.sleep(1.0)
                 else:
                     time.sleep(0.1)
@@ -423,11 +565,11 @@ class VTuberChatApp:
     def process_user_input(self, user_input):
         """Process user input and get AI response"""
         if not hasattr(self, 'ai_client') or not self.ai_client:
-            self.add_message("System", "❌ AI client not available", is_error=True)
+            self.add_message("System", "❌ AI client not available", (255, 85, 85))
             return
 
         try:
-            self.add_message("System", "🤖 Processing...")
+            self.add_message("System", "🤖 Processing...", (255, 170, 85))
 
             # Add user message to chat history
             self.chat_messages.append({"role": "user", "content": user_input})
@@ -469,19 +611,19 @@ class VTuberChatApp:
                         if self.avatar_enabled and LIVE2D_AVAILABLE:
                             sync_avatar_speech(tts_text)
                     except Exception as e:
-                        self.add_message("System", f"TTS error: {e}", is_error=True)
+                        self.add_message("System", f"TTS error: {e}", (255, 85, 85))
 
                 # Update avatar with response
                 if self.avatar_enabled and LIVE2D_AVAILABLE:
                     try:
                         handle_ai_response(full_response)
                     except Exception as e:
-                        self.add_message("System", f"Avatar response error: {e}", is_error=True)
+                        self.add_message("System", f"Avatar response error: {e}", (255, 85, 85))
             else:
-                self.add_message("System", "❌ Empty response from AI", is_error=True)
+                self.add_message("System", "❌ Empty response from AI", (255, 85, 85))
 
         except Exception as e:
-            self.add_message("System", f"AI processing error: {e}", is_error=True)
+            self.add_message("System", f"AI processing error: {e}", (255, 85, 85))
 
     def handle_command(self, command):
         """Handle special commands"""
@@ -494,200 +636,21 @@ class VTuberChatApp:
         elif cmd == "//voice":
             if hasattr(self, 'recognizer') and self.recognizer:
                 self.voice_input_enabled = not self.voice_input_enabled
+                self.voice_btn.set_text(f"Voice Input: {'ON' if self.voice_input_enabled else 'OFF'}")
                 if self.voice_input_enabled:
                     self.start_voice_listening()
                 else:
                     self.stop_listening = True
-                self.update_status_indicators()
             else:
-                self.add_message("System", "❌ Voice input not available", is_error=True)
+                self.add_message("System", "❌ Voice input not available", (255, 85, 85))
 
         elif cmd == "//speak":
             if hasattr(self, 'tts') and self.tts:
                 self.tts_enabled = not self.tts_enabled
-                self.update_status_indicators()
+                self.tts_btn.set_text(f"TTS: {'ON' if self.tts_enabled else 'OFF'}")
             else:
-                self.add_message("System", "❌ TTS not available", is_error=True)
+                self.add_message("System", "❌ TTS not available", (255, 85, 85))
 
         elif cmd == "//avatar":
             if LIVE2D_AVAILABLE:
-                if not self.avatar_enabled and not self.avatar_initializing:
-                    self.initialize_avatar_async()
-                elif self.avatar_enabled:
-                    self.avatar_enabled = False
-                    shutdown_avatar()
-                    self.avatar_display_running = False
-                    self.add_message("System", "🎭 Avatar disabled")
-                    self.update_status_indicators()
-            else:
-                self.add_message("System", "❌ Live2D integration not available", is_error=True)
-
-        elif cmd == "//clear":
-            self.conversation_history = []
-            self.chat_messages = []  # Clear AI chat history too
-            self.chat_history.set_text("")
-            # Clear the AI client's conversation history
-            if hasattr(self, 'ai_client') and self.ai_client:
-                self.ai_client.clear_conversation()
-            self.add_message("System", "🗑️ Chat history cleared")
-
-        elif cmd.startswith("//volume"):
-            if hasattr(self, 'tts') and self.tts and len(parts) == 2:
-                try:
-                    vol = int(parts[1])
-                    if 0 <= vol <= 100:
-                        self.tts.set_volume(vol)
-                        self.volume_btn.set_text(f"Volume: {vol}%")
-                        self.add_message("System", f"🔊 Volume set to {vol}%")
-                    else:
-                        self.add_message("System", "❌ Volume must be 0-100", is_error=True)
-                except ValueError:
-                    self.add_message("System", "❌ Invalid volume value", is_error=True)
-            else:
-                self.add_message("System", "❌ Usage: //volume [0-100]", is_error=True)
-
-        elif cmd.startswith("//emotion"):
-            if LIVE2D_AVAILABLE and self.avatar_enabled and len(parts) == 2:
-                emotion = parts[1]
-                try:
-                    set_avatar_emotion(emotion, 1.0)
-                    self.add_message("System", f"😊 Avatar emotion set to: {emotion}")
-                except Exception as e:
-                    self.add_message("System", f"❌ Emotion error: {e}", is_error=True)
-            else:
-                self.add_message("System", "❌ Avatar not available or invalid emotion", is_error=True)
-
-        else:
-            self.add_message("System", f"❌ Unknown command: {cmd}", is_error=True)
-
-    def run(self):
-        """Main application loop"""
-        clock = pygame.time.Clock()
-        self.running = True
-
-        # Start voice listening if enabled
-        if self.voice_input_enabled:
-            self.start_voice_listening()
-
-        self.add_message("System", "🚀 Application ready! Type a message or use //commands")
-
-        while self.running:
-            time_delta = clock.tick(60) / 1000.0
-
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    self.running = False
-
-                elif event.type == pygame.MOUSEMOTION:
-                    self.handle_mouse_motion(event.pos)
-
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_RETURN and self.input_box.is_focused:
-                        text = self.input_box.get_text().strip()
-                        if text:
-                            self.input_box.set_text("")
-                            if text.startswith("//"):
-                                self.handle_command(text)
-                            else:
-                                self.add_message("You", text)
-                                self.process_user_input(text)
-
-                elif event.type == pygame_gui.UI_BUTTON_PRESSED:
-                    if event.ui_element == self.send_btn:
-                        text = self.input_box.get_text().strip()
-                        if text:
-                            self.input_box.set_text("")
-                            if text.startswith("//"):
-                                self.handle_command(text)
-                            else:
-                                self.add_message("You", text)
-                                self.process_user_input(text)
-
-                    elif event.ui_element == self.voice_btn:
-                        self.handle_command("//voice")
-
-                    elif event.ui_element == self.tts_btn:
-                        self.handle_command("//speak")
-
-                    elif event.ui_element == self.avatar_btn:
-                        self.handle_command("//avatar")
-
-                    elif event.ui_element == self.emotion_btn:
-                        # Cycle through emotions for testing
-                        emotions = ['happy', 'surprised', 'sad', 'angry', 'confused', 'neutral']
-                        import random
-                        emotion = random.choice(emotions)
-                        self.handle_command(f"//emotion {emotion}")
-
-                    elif event.ui_element == self.clear_btn:
-                        self.handle_command("//clear")
-
-                    elif event.ui_element == self.volume_btn:
-                        # Cycle volume between 25%, 50%, 75%, 100%
-                        if hasattr(self, 'tts') and self.tts:
-                            current_vol = self.tts.get_volume()
-                            new_vol = 25 if current_vol >= 100 else current_vol + 25
-                            self.handle_command(f"//volume {new_vol}")
-
-                    elif event.ui_element == self.avatar_window_btn:
-                        if self.avatar_display_running:
-                            shutdown_avatar()
-                            self.avatar_display_running = False
-                        else:
-                            self.start_avatar_display_async()
-
-                    elif event.ui_element == self.exit_btn:
-                        self.running = False
-
-                self.manager.process_events(event)
-
-            # Update UI
-            self.manager.update(time_delta)
-
-            # Periodic status update
-            if int(time.time()) % 5 == 0:  # Every 5 seconds
-                self.update_status_indicators()
-
-            # Draw everything
-            self.screen.fill(self.BG_COLOR)
-            self.manager.draw_ui(self.screen)
-            pygame.display.flip()
-
-        # Cleanup
-        self.cleanup()
-
-    def cleanup(self):
-        """Cleanup all resources"""
-        print("🛑 Shutting down application...")
-
-        # Stop voice listening
-        self.stop_listening = True
-        if hasattr(self, 'listening_thread') and self.listening_thread and self.listening_thread.is_alive():
-            self.listening_thread.join(timeout=2.0)
-
-        # Shutdown avatar
-        if LIVE2D_AVAILABLE and (self.avatar_enabled or self.avatar_display_running):
-            try:
-                shutdown_avatar()
-                print("✅ Avatar shutdown complete")
-            except Exception as e:
-                print(f"⚠️ Avatar shutdown error: {e}")
-
-        # Wait for avatar init thread
-        if hasattr(self, 'avatar_init_thread') and self.avatar_init_thread and self.avatar_init_thread.is_alive():
-            self.avatar_init_thread.join(timeout=2.0)
-
-        pygame.quit()
-        print("✅ Application shutdown complete")
-
-
-if __name__ == "__main__":
-    try:
-        app = VTuberChatApp()
-        app.run()
-    except KeyboardInterrupt:
-        print("\n🛑 Application interrupted by user")
-    except Exception as e:
-        print(f"❌ Application error: {e}")
-    finally:
-        sys.exit(0)
+                if not self.avatar_enabled and not self.avatar_initial

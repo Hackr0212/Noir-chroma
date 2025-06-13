@@ -1,1 +1,3 @@
-/piper/
+.venv
+/piper
+/rag_db

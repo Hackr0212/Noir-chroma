@@ -8,3 +8,4 @@ pygame
 numpy
 chromadb
 sentence-transformers
+live2d-py
