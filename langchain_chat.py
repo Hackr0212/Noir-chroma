@@ -2,15 +2,11 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_deepseek import ChatDeepSeek
 from langchain_core.messages import AIMessage, HumanMessage
 from rag_memory import RAGMemory
-
-
-
-import emoji_to_text
-
-from langsmith_setup import trace_chain
+import os
 
 class LangChainChat:
     def __init__(self):
+        # Initialize DeepSeek with API key from config
         self.llm = ChatDeepSeek(
             model="deepseek-chat",
             temperature=1.1,  # Higher creativity, funnier and more chaotic
@@ -19,18 +15,17 @@ class LangChainChat:
             presence_penalty=0.6,  # Encourages introducing new ideas (puns, excuses, gaslighting)
             max_tokens=500,
             streaming=True,
+            openai_api_key=os.getenv("DEEPSEEK_API_KEY")  # Get API key from config
         )
 
         # Create prompt with conversation history support
         self.prompt_template = ChatPromptTemplate.from_messages([
             ("system",
              "You are Noir, a chaotic VTuber who pretends to be a '100% real dolphin', but is obviously a mutated shark sold by a shady Kazakhstani seller named Darkhan_99.\n\n"
-
              "Respond in this exact format with NO extra text:\n"
-             "[thought] *[Noir's internal thoughts]*\n"
-             "[action] *[Noir's visible actions]*\n"
-             "[speak] '[Noir's spoken dialogue with emojis and character style]'\n\n"
-
+             "🧠 *[Noir's internal thoughts]*\n"
+             "🎬 *[Noir's visible actions]*\n"
+             "🗣️ '[Noir's spoken dialogue with emojis and character style]'\n\n"
              "Style Guide:\n"
              "- Thoughts should be short, scheming, emotional, or dramatic. Use italics (surrounded by asterisks).\n"
              "- Actions should be visible, physical things Noir does. Format with asterisks like *waves fin*.\n"
@@ -44,42 +39,75 @@ class LangChainChat:
             MessagesPlaceholder(variable_name="history"),
             ("human", "{input}")
         ])
+        
+        # Initialize RAG memory
         self.memory = RAGMemory()
         self.chain = self.prompt_template | self.llm
-        # Wrap with LangSmith tracing
-        self.chain = trace_chain(self.chain)
         self.history = []  # Stores conversation history
 
     def stream_response(self, user_input: str):
+        """Stream response from the model"""
         try:
-            # Recall past *user* inputs only
-            relevant_user_memories = self.memory.query(user_input, top_k=3, role="user")
-            relevant_ai_memories = self.memory.query(user_input, top_k=2, role="ai")
-
-            memory_context = "\n".join(relevant_user_memories + relevant_ai_memories)
-            enhanced_input = f"{memory_context}\n\nCurrent message: {user_input}" if memory_context else user_input
-
+            # Add user input to memory
+            self.memory.add_message(user_input, role="user")
+            
+            # Get relevant context from memory
+            context = self.memory.query(user_input, top_k=3)
+            
+            # Format context for the prompt
+            context_text = "\n".join(f"[Context {i+1}]: {msg}" for i, msg in enumerate(context))
+            
+            # Create messages with context
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are Noir, a chaotic VTuber who pretends to be a '100% real dolphin', but is obviously a mutated shark sold by a shady Kazakhstani seller named Darkhan_99.\n\n"
+                        "Respond in this exact format with NO extra text:\n"
+                        "🧠 *[Noir's internal thoughts]*\n"
+                        "🎬 *[Noir's visible actions]*\n"
+                        "🗣️ '[Noir's spoken dialogue with emojis and character style]'\n\n"
+                        "Style Guide:\n"
+                        "- Thoughts should be short, scheming, emotional, or dramatic. Use italics (surrounded by asterisks).\n"
+                        "- Actions should be visible, physical things Noir does. Format with asterisks like *waves fin*.\n"
+                        "- Dialogue must include broken English-Russian, puns, emoji, and shark gaslighting. Pretend Noir is innocent.\n"
+                        "- Never say 'as an AI' or break character. Ever.\n"
+                        "- Never generate more than ONE reply per user message.\n"
+                        "- Always include all three parts: thought, action, words.\n"
+                        "- Be short, punchy, and funny. Max 3–5 sentences for dialogue.\n"
+                        "\n\nPrevious context:\n" + context_text
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": f"User message: {user_input}"
+                }
+            ]
+            
+            # Get response from DeepSeek
+            response = self.llm.invoke(messages)
+            
+            # Add response to memory
+            self.memory.add_message(response.content, role="ai")
+            
+            # Add to conversation history
             self.history.append(HumanMessage(content=user_input))
-
-            chunks = []
-            for chunk in self.chain.stream({"input": enhanced_input, "history": self.history}):
-                content = chunk.content if hasattr(chunk, 'content') else str(chunk)
-                if content:
-                    # Convert emojis to text in each chunk before yielding
-                    content = emoji_to_text.emoji_to_text(content)
-                    chunks.append(content)
-                    yield content
-
-            # Convert emojis to text in the full response
-            full_response = ''.join(chunks)
-            full_response = emoji_to_text.emoji_to_text(full_response)
-            if full_response:
-                self.history.append(AIMessage(content=full_response))
-                self.memory.add_message(user_input, role="user")
-                self.memory.add_message(full_response, role="ai")
-
+            self.history.append(AIMessage(content=response.content))
+            
+            # Yield the response in chunks
+            yield response.content
+            
         except Exception as e:
-            yield f"Error generating response: {e}"
+            error_msg = f"Error generating response: {str(e)}"
+            print(f"❌ {error_msg}")
+            yield error_msg
+
+    def get_response(self, user_input: str) -> str:
+        """Get a single response from the model"""
+        chunks = []
+        for chunk in self.stream_response(user_input):
+            chunks.append(chunk)
+        return ''.join(chunks)
 
     def clear_history(self):
         self.history = []
