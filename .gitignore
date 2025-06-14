@@ -2,4 +2,5 @@
 /piper/
 /piper/espeak-ng-data/
 /rag_db
+/live2d_model
 .webui_secret_key

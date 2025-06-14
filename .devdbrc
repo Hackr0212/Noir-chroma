@@ -1,0 +1,6 @@
+[
+  {
+    "type": "sqlite",
+    "path": "/home/doerian/Projects/Noir-chroma/rag_db/chroma.sqlite3"
+  }
+]
