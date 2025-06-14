@@ -1,3 +1,5 @@
 .venv
-/piper
+/piper/
+/piper/espeak-ng-data/
 /rag_db
+.webui_secret_key

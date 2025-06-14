@@ -2,21 +2,41 @@ import speech_recognition as sr
 import threading
 import time
 from typing import Optional
+import platform
 
 
 class SpeechRecognizer:
     def __init__(self):
         self.recognizer = sr.Recognizer()
-        self.microphone = sr.Microphone()
+        
+        # Linux-specific microphone settings
+        if platform.system() == 'Linux':
+            try:
+                # Try to find the default microphone
+                self.microphone = sr.Microphone()
+                # Adjust settings for Linux
+                self.recognizer.energy_threshold = 300  # Lower threshold for Linux
+                self.recognizer.dynamic_energy_threshold = True
+                self.recognizer.pause_threshold = 0.8
+                self.recognizer.operation_timeout = None
+                print("✅ Microphone initialized for Linux")
+            except Exception as e:
+                print(f"❌ Error initializing microphone: {e}")
+                print("Please ensure you have a working microphone and proper permissions")
+                print("For Arch Linux, install required packages:")
+                print("   sudo pacman -S portaudio python-pyaudio")
+                print("   sudo pacman -S alsa-utils")
+                raise
+        else:
+            self.microphone = sr.Microphone()
+            self.recognizer.energy_threshold = 400
+            self.recognizer.dynamic_energy_threshold = True
+            self.recognizer.pause_threshold = 0.8
+            self.recognizer.operation_timeout = None
+
         self.is_listening = False
         self.voice_detected = False
         self.speech_thread = None
-
-        # Optimize recognizer settings for voice activity detection
-        self.recognizer.energy_threshold = 400  # Higher threshold for voice detection
-        self.recognizer.dynamic_energy_threshold = True
-        self.recognizer.pause_threshold = 0.8
-        self.recognizer.operation_timeout = None
 
         # Voice activity detection settings
         self.voice_detection_timeout = 0.1  # Check every 100ms
@@ -150,12 +170,39 @@ class SpeechRecognizer:
     def test_microphone(self) -> bool:
         """Test if microphone is working"""
         try:
+            print("Testing microphone...")
             with self.microphone as source:
+                print("Adjusting for ambient noise...")
                 self.recognizer.adjust_for_ambient_noise(source, duration=1)
-            print("Microphone test successful!")
-            return True
+                
+                # Try to capture a small audio sample
+                print("Capturing test audio...")
+                audio = self.recognizer.listen(source, timeout=1, phrase_time_limit=1)
+                
+                if len(audio.frame_data) > 0:
+                    print("✅ Microphone test successful!")
+                    return True
+                else:
+                    print("❌ No audio data captured")
+                    return False
+                    
         except Exception as e:
-            print(f"Microphone test failed: {e}")
+            print(f"❌ Microphone test failed: {e}")
+            if platform.system() == 'Linux':
+                print("\nTroubleshooting steps for Arch Linux:")
+                print("1. Check if microphone is detected:")
+                print("   arecord -l")
+                print("   # or")
+                print("   pactl list sources")
+                print("2. Check if you have proper permissions:")
+                print("   sudo usermod -a -G audio $USER")
+                print("3. Install required packages:")
+                print("   sudo pacman -S portaudio python-pyaudio")
+                print("   sudo pacman -S alsa-utils")
+                print("4. Check if PulseAudio is running:")
+                print("   systemctl --user status pulseaudio")
+                print("5. If PulseAudio is not running:")
+                print("   systemctl --user start pulseaudio")
             return False
 
     def stop_listening(self):

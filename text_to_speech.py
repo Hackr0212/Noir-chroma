@@ -2,7 +2,6 @@ import os
 import io
 import tempfile
 import platform
-import pygame
 import soundfile as sf
 import numpy as np
 import subprocess
@@ -15,20 +14,19 @@ import re
 class TextToSpeech:
     def __init__(self):
         self.sample_rate = 22050
-
-        # Initialize pygame mixer
-        try:
-            pygame.mixer.pre_init(frequency=22050, size=-16, channels=2, buffer=1024)
-            pygame.mixer.init()
-            print("✅ Pygame mixer initialized successfully")
-        except Exception as e:
-            print(f"❌ Failed to initialize pygame mixer: {e}")
-            raise
+        self.current_audio_process = None
 
         # PiperTTS configuration - Linux version
-        self.piper_exe = os.path.join("piper", "piper")  # Your specific setup
+        self.piper_exe = os.path.join("piper", "piper")
         self.piper_model = None
         self.available_models = []
+
+        # Set up Linux-specific paths
+        self.model_paths = [
+            os.path.join("piper"),  # Local directory
+            os.path.join(os.path.expanduser("~"), ".local", "share", "piper"),  # User's local share
+            "/usr/share/piper",  # System-wide installation
+        ]
 
         self.initialize_piper()
 
@@ -38,6 +36,7 @@ class TextToSpeech:
             # Test if piper executable exists and is accessible
             if not os.path.exists(self.piper_exe):
                 print(f"❌ Piper executable not found at: {self.piper_exe}")
+                self._suggest_piper_installation()
                 return False
                 
             if not os.access(self.piper_exe, os.X_OK):
@@ -57,24 +56,24 @@ class TextToSpeech:
 
             print(f"✅ Found Piper executable: {self.piper_exe}")
 
-            # Look for model files in the piper directory
-            piper_dir = "piper"
+            # Look for model files in all possible locations
             model_files = []
-
-            if os.path.exists(piper_dir):
-                for file in os.listdir(piper_dir):
-                    if file.endswith('.onnx'):
-                        model_files.append(file)
+            for path in self.model_paths:
+                if os.path.exists(path):
+                    for file in os.listdir(path):
+                        if file.endswith('.onnx'):
+                            model_files.append(os.path.join(path, file))
 
             if not model_files:
-                print("⚠️ No .onnx model files found in piper directory")
+                print("⚠️ No .onnx model files found in any of the model directories")
+                self._suggest_model_download()
                 return False
 
-            self.piper_model = os.path.join(piper_dir, model_files[0])
-            self.available_models = model_files
+            self.piper_model = model_files[0]
+            self.available_models = [os.path.basename(f) for f in model_files]
 
-            print(f"🎤 Using voice model: {model_files[0]}")
-            print(f"📋 Available models: {', '.join(model_files)}")
+            print(f"🎤 Using voice model: {os.path.basename(model_files[0])}")
+            print(f"📋 Available models: {', '.join(self.available_models)}")
 
             return True
 
@@ -83,15 +82,17 @@ class TextToSpeech:
             return False
 
     def _suggest_piper_installation(self):
-        """Suggest how to install Piper on Linux"""
-        print("\n📦 To install Piper TTS on Linux:")
-        print("1. Download from GitHub releases:")
+        """Suggest how to install Piper on Arch Linux"""
+        print("\n📦 To install Piper TTS on Arch Linux:")
+        print("1. Using AUR (recommended):")
+        print("   # If you have yay:")
+        print("   yay -S piper-tts")
+        print("   # Or if you have paru:")
+        print("   paru -S piper-tts")
+        print("\n2. Or download manually:")
         print("   wget https://github.com/rhasspy/piper/releases/latest/download/piper_linux_x86_64.tar.gz")
         print("   tar -xzf piper_linux_x86_64.tar.gz")
-        print("   # This creates a 'piper' directory with the executable")
-        print("\n2. Or install via package manager (if available):")
-        print("   # For Ubuntu/Debian: sudo apt install piper-tts")
-        print("   # For Arch: yay -S piper-tts")
+        print("   chmod +x piper/piper")
         print("\n3. Or build from source:")
         print("   git clone https://github.com/rhasspy/piper.git")
         print("   cd piper && make")
@@ -103,8 +104,8 @@ class TextToSpeech:
         print("2. Download a voice model (e.g., en_US-lessac-medium.onnx)")
         print("3. Place it in one of these directories:")
         print("   - ./piper/")
-        print("   - ./models/")
         print("   - ~/.local/share/piper/")
+        print("   - /usr/share/piper/")
         print("\nPopular English models:")
         print("   - en_US-lessac-medium.onnx (clear female voice)")
         print("   - en_US-danny-low.onnx (male voice, smaller file)")
@@ -160,22 +161,23 @@ class TextToSpeech:
             temp_audio.close()
 
             try:
-                cmd = [
-                    self.piper_exe,
-                    '--model', self.piper_model,
-                    '--output_file', audio_file_path
-                ]
-
-                process = subprocess.run(
-                    cmd,
-                    input=clean_text,
-                    text=True,
-                    capture_output=True,
-                    timeout=30
+                # Use pipe for input to avoid encoding issues
+                process = subprocess.Popen(
+                    [
+                        self.piper_exe,
+                        '--model', self.piper_model,
+                        '--output_file', audio_file_path
+                    ],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
                 )
 
+                stdout, stderr = process.communicate(input=clean_text, timeout=30)
+
                 if process.returncode != 0:
-                    print(f"❌ Piper TTS error: {process.stderr}")
+                    print(f"❌ Piper TTS error: {stderr}")
                     return None
 
                 if os.path.exists(audio_file_path) and os.path.getsize(audio_file_path) > 0:
@@ -193,28 +195,50 @@ class TextToSpeech:
             return None
 
     def play_audio_file(self, audio_file_path: str):
-        """Play audio file using pygame"""
+        """Play audio file using aplay (Linux) or afplay (macOS)"""
         try:
             if not os.path.exists(audio_file_path):
                 print(f"❌ Audio file not found: {audio_file_path}")
                 return False
 
-            print("🔊 Playing audio with pygame...")
+            # Stop any currently playing audio
+            self.stop_audio()
 
-            # Load and play the audio file
-            pygame.mixer.music.load(audio_file_path)
-            pygame.mixer.music.play()
+            # Use appropriate player based on platform
+            if platform.system() == 'Linux':
+                self.current_audio_process = subprocess.Popen(['aplay', audio_file_path])
+            elif platform.system() == 'Darwin':  # macOS
+                self.current_audio_process = subprocess.Popen(['afplay', audio_file_path])
+            else:
+                print("❌ Unsupported platform for audio playback")
+                return False
 
-            # Wait for playback to finish
-            while pygame.mixer.music.get_busy():
-                pygame.time.wait(100)
-
-            print("✅ Audio playback completed")
             return True
 
         except Exception as e:
-            print(f"❌ Error playing audio with pygame: {e}")
+            print(f"❌ Error playing audio: {e}")
             return False
+
+    def stop_audio(self):
+        """Stop any currently playing audio"""
+        if self.current_audio_process:
+            try:
+                self.current_audio_process.terminate()
+                self.current_audio_process = None
+            except Exception as e:
+                print(f"❌ Error stopping audio: {e}")
+
+    def set_volume(self, volume: float):
+        """Set system volume (not implemented)"""
+        print("⚠️ Volume control not implemented in this version")
+
+    def pause_audio(self):
+        """Pause audio playback (not implemented)"""
+        print("⚠️ Audio pause not implemented in this version")
+
+    def unpause_audio(self):
+        """Unpause audio playback (not implemented)"""
+        print("⚠️ Audio unpause not implemented in this version")
 
     def speak(self, text: str):
         """Convert text to speech and play it - now with speech filtering and pygame"""
@@ -394,39 +418,6 @@ class TextToSpeech:
             print("✅ PiperTTS working correctly")
         else:
             print("❌ PiperTTS test failed")
-
-    def stop_audio(self):
-        """Stop current audio playback"""
-        try:
-            pygame.mixer.music.stop()
-            print("🛑 Audio playback stopped")
-        except Exception as e:
-            print(f"Error stopping audio: {e}")
-
-    def set_volume(self, volume: float):
-        """Set playback volume (0.0 to 1.0)"""
-        try:
-            volume = max(0.0, min(1.0, volume))  # Clamp between 0 and 1
-            pygame.mixer.music.set_volume(volume)
-            print(f"🔊 Volume set to {int(volume * 100)}%")
-        except Exception as e:
-            print(f"Error setting volume: {e}")
-
-    def pause_audio(self):
-        """Pause current audio playback"""
-        try:
-            pygame.mixer.music.pause()
-            print("⏸️ Audio paused")
-        except Exception as e:
-            print(f"Error pausing audio: {e}")
-
-    def unpause_audio(self):
-        """Resume paused audio playback"""
-        try:
-            pygame.mixer.music.unpause()
-            print("▶️ Audio resumed")
-        except Exception as e:
-            print(f"Error resuming audio: {e}")
 
     def check_system_requirements(self):
         """Check Linux system requirements and suggest fixes"""
