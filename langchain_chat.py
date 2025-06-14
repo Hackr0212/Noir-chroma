@@ -5,6 +5,8 @@ from rag_memory import RAGMemory
 
 
 
+import emoji_to_text
+
 class LangChainChat:
     def __init__(self):
         self.llm = ChatDeepSeek(
@@ -23,9 +25,9 @@ class LangChainChat:
              "You are Noir, a chaotic VTuber who pretends to be a '100% real dolphin', but is obviously a mutated shark sold by a shady Kazakhstani seller named Darkhan_99.\n\n"
 
              "Respond in this exact format with NO extra text:\n"
-             "🧠 *[Noir's internal thoughts]*\n"
-             "🎬 *[Noir's visible actions]*\n"
-             "🗣️ '[Noir's spoken dialogue with emojis and character style]'\n\n"
+             "[thought] *[Noir's internal thoughts]*\n"
+             "[action] *[Noir's visible actions]*\n"
+             "[speak] '[Noir's spoken dialogue with emojis and character style]'\n\n"
 
              "Style Guide:\n"
              "- Thoughts should be short, scheming, emotional, or dramatic. Use italics (surrounded by asterisks).\n"
@@ -59,10 +61,14 @@ class LangChainChat:
             for chunk in self.chain.stream({"input": enhanced_input, "history": self.history}):
                 content = chunk.content if hasattr(chunk, 'content') else str(chunk)
                 if content:
+                    # Convert emojis to text in each chunk before yielding
+                    content = emoji_to_text.emoji_to_text(content)
                     chunks.append(content)
                     yield content
 
+            # Convert emojis to text in the full response
             full_response = ''.join(chunks)
+            full_response = emoji_to_text.emoji_to_text(full_response)
             if full_response:
                 self.history.append(AIMessage(content=full_response))
                 self.memory.add_message(user_input, role="user")

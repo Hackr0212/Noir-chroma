@@ -2,7 +2,7 @@ import sys
 import threading
 import time
 from speech_recognizer import SpeechRecognizer
-from text_to_speech import TextToSpeech
+
 from deepseek_client import DeepSeekClient
 import config
 
@@ -31,7 +31,7 @@ class VTuberChatApp:
     def __init__(self):
         self.running = True
         self.speech_recognizer = None
-        self.text_to_speech = None
+
         self.deepseek_client = None
         self.avatar_initialized = False
         self.avatar_display_started = False
@@ -48,7 +48,7 @@ class VTuberChatApp:
             print("✅ Speech recognition initialized")
             
             # Initialize text-to-speech
-            self.text_to_speech = TextToSpeech()
+
             print("✅ Text-to-speech initialized")
             
             # Initialize DeepSeek client
@@ -70,6 +70,7 @@ class VTuberChatApp:
         print("Type 'exit' to quit")
         print("Type 'voice' to start voice input")
         print("Type 'text' to enter text input")
+        print("Type 'pygame' to launch the Live2D PyGame demo")
         print("==============================\n")
 
         while self.running:
@@ -84,8 +85,15 @@ class VTuberChatApp:
                     text = input("Enter your message: ")
                     if text:
                         self.process_user_input(text)
+                elif command == 'pygame':
+                    print("Launching Live2D PyGame demo...")
+                    import subprocess
+                    try:
+                        subprocess.run(['python', 'live2d_pygame_demo.py'], check=True)
+                    except Exception as e:
+                        print(f"Error launching PyGame demo: {e}")
                 else:
-                    print("Unknown command. Available commands: exit, voice, text")
+                    print("Unknown command. Available commands: exit, voice, text, pygame")
             
             except KeyboardInterrupt:
                 print("\nShutting down...")
@@ -124,11 +132,12 @@ class VTuberChatApp:
                 print("❌ Failed to get AI response")
                 return
 
-            print(f"\nAI: {response}")
+            print("\n======= AI RESPONSE =======")
+            print(str(response))
+            print("==========================\n")
             
             # Convert response to speech
-            if self.text_to_speech:
-                self.text_to_speech.speak_async(response)
+
 
         except Exception as e:
             print(f"Error processing input: {e}")
@@ -137,8 +146,7 @@ class VTuberChatApp:
         """Clean up resources"""
         print("\nCleaning up...")
         
-        if self.text_to_speech:
-            self.text_to_speech.stop_audio()
+
         
         if LIVE2D_AVAILABLE and self.avatar_display_started:
             shutdown_avatar()
