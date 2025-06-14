@@ -1,54 +1,52 @@
-import pygame
-import pygame_gui
-import sys
-from pygame.locals import *
+import gradio as gr
 from langchain_chat import LangChainChat
 from deepseek_client import DeepSeekClient
 import threading
 import time
 
-# Initialize Pygame
-pygame.init()
-
-# Constants
-WINDOW_SIZE = (800, 600)
-BACKGROUND_COLOR = (30, 30, 30)
-TEXT_COLOR = (255, 255, 255)
-
-# Set up display
-screen = pygame.display.set_mode(WINDOW_SIZE)
-pygame.display.set_caption('Noir-chroma: AI Assistant')
-
-clock = pygame.time.Clock()
-manager = pygame_gui.UIManager(WINDOW_SIZE)
-
 # Initialize chat
 chat = LangChainChat()
 deepseek = DeepSeekClient()
 
-# Create UI elements
-chat_box = pygame_gui.elements.UITextBox(
-    html_text='<b>Welcome to Noir-chroma!</b><br>Type your message below to start...',
-    relative_rect=pygame.Rect(20, 20, WINDOW_SIZE[0] - 40, WINDOW_SIZE[1] - 160),
-    manager=manager
-)
+def get_response(message):
+    """Get response from the AI"""
+    try:
+        # Get response from LangChain
+        response = chat.get_response(message)
+        return [[message, response]]  # Return as list of lists
+    except Exception as e:
+        return [[message, f"Error: {str(e)}"]]  # Return error as list of lists
 
-input_box = pygame_gui.elements.UITextEntryLine(
-    relative_rect=pygame.Rect(20, WINDOW_SIZE[1] - 120, WINDOW_SIZE[0] - 220, 40),
-    manager=manager
-)
+# Create Gradio interface
+def create_interface():
+    with gr.Blocks(theme=gr.themes.Default()) as demo:
+        gr.Markdown("# Noir-chroma: AI Assistant")
+        
+        with gr.Row():
+            chatbot = gr.Chatbot(
+                value=[
+                    ["Welcome to Noir-chroma! Type your message below to start...", ""]
+                ],
+                height=400,
+                bubble_full_width=False
+            )
+            
+        with gr.Row():
+            message = gr.Textbox(
+                placeholder="Type your message here...",
+                container=False,
+                scale=7
+            )
+            submit_btn = gr.Button("Send", variant="primary")
+            
+        message.submit(get_response, inputs=[message], outputs=[chatbot])
+        submit_btn.click(get_response, inputs=[message], outputs=[chatbot])
+    
+    return demo
 
-send_button = pygame_gui.elements.UIButton(
-    relative_rect=pygame.Rect(WINDOW_SIZE[0] - 180, WINDOW_SIZE[1] - 120, 160, 40),
-    text='Send',
-    manager=manager
-)
-
-status_label = pygame_gui.elements.UILabel(
-    relative_rect=pygame.Rect(20, WINDOW_SIZE[1] - 80, WINDOW_SIZE[0] - 40, 30),
-    text='Ready',
-    manager=manager
-)
+# Run the interface
+demo = create_interface()
+demo.launch(share=False)
 
 def process_input(text):
     """Process user input and get AI response"""
@@ -63,21 +61,6 @@ def process_input(text):
     except Exception as e:
         status_label.set_text(f'Error: {str(e)}')
 
-def handle_events():
-    """Handle Pygame events"""
-    for event in pygame.event.get():
-        if event.type == QUIT:
-            pygame.quit()
-            sys.exit()
-
-        if event.type == pygame_gui.UI_BUTTON_PRESSED:
-            if event.ui_element == send_button:
-                text = input_box.get_text().strip()
-                if text:
-                    input_box.set_text('')
-                    threading.Thread(target=process_input, args=(text,)).start()
-
-        manager.process_events(event)
 
 def update():
     """Update the UI"""
