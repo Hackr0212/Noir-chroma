@@ -7,6 +7,8 @@ from rag_memory import RAGMemory
 
 import emoji_to_text
 
+from langsmith_setup import trace_chain
+
 class LangChainChat:
     def __init__(self):
         self.llm = ChatDeepSeek(
@@ -44,6 +46,8 @@ class LangChainChat:
         ])
         self.memory = RAGMemory()
         self.chain = self.prompt_template | self.llm
+        # Wrap with LangSmith tracing
+        self.chain = trace_chain(self.chain)
         self.history = []  # Stores conversation history
 
     def stream_response(self, user_input: str):
