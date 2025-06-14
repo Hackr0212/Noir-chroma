@@ -1,160 +1,56 @@
-import sys
-import threading
-import time
-from speech_recognizer import SpeechRecognizer
+import streamlit as st
 
-from deepseek_client import DeepSeekClient
-import config
-
-# Import Live2D integration
+# Optional: For speech-to-text, use streamlit_webrtc if available
 try:
-    from live2d_integration import (
-        initialize_live2d_avatar,
-        start_live2d_display,
-        handle_ai_response,
-        sync_avatar_speech,
-        is_avatar_running,
-        shutdown_avatar,
-        get_avatar_status,
-        set_avatar_emotion,
-        update_avatar_mouse_tracking
-    )
+    from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
+    import queue
+    import av
+    import speech_recognition as sr
+    WEBSPEECH_AVAILABLE = True
+except ImportError:
+    WEBSPEECH_AVAILABLE = False
 
-    LIVE2D_AVAILABLE = True
-    print("✅ Live2D integration loaded successfully")
-except ImportError as e:
-    print(f"⚠️ Live2D integration not available: {e}")
-    LIVE2D_AVAILABLE = False
+st.set_page_config(page_title="Noir-chroma GUI", layout="centered")
+st.title("Noir-chroma: Voice & Text Input Demo")
 
+st.write("You can enter text or use your microphone to input speech.")
 
-class VTuberChatApp:
-    def __init__(self):
-        self.running = True
-        self.speech_recognizer = None
+# --- Text Input ---
+text_input = st.text_input("Type your message:")
+if st.button("Submit Text"):
+    st.success(f"Text input: {text_input}")
+    # TODO: Integrate with AI/processing logic here
 
-        self.deepseek_client = None
-        self.avatar_initialized = False
-        self.avatar_display_started = False
-        self.voice_listening = False
-        self.voice_thread = None
+# --- Speech-to-Text Input ---
+if WEBSPEECH_AVAILABLE:
+    st.write("Or, speak into your microphone:")
+    class AudioProcessor(AudioProcessorBase):
+        def __init__(self):
+            self.q = queue.Queue()
+            self.recognizer = sr.Recognizer()
+            self.audio_data = b""
+        def recv(self, frame):
+            audio = frame.to_ndarray()
+            self.audio_data += audio.tobytes()
+            return frame
+        def get_text(self):
+            if self.audio_data:
+                audio = sr.AudioData(self.audio_data, 16000, 2)
+                try:
+                    return self.recognizer.recognize_google(audio)
+                except Exception as e:
+                    return f"Recognition error: {e}"
+            return ""
+    ctx = webrtc_streamer(key="speech-to-text", audio_processor_factory=AudioProcessor, media_stream_constraints={"audio": True, "video": False})
+    if hasattr(ctx.state, "audio_processor") and ctx.state.audio_processor is not None:
+        if st.button("Transcribe Speech"):
+            text = ctx.state.audio_processor.get_text()
+            st.success(f"Speech input: {text}")
+            # TODO: Integrate with AI/processing logic here
+else:
+    st.warning("Speech-to-text not available. Install streamlit_webrtc and speech_recognition for this feature.")
 
-    def initialize_components(self):
-        """Initialize all components"""
-        try:
-            print("Initializing components...")
-            
-            # Initialize speech recognition
-            self.speech_recognizer = SpeechRecognizer()
-            print("✅ Speech recognition initialized")
-            
-            # Initialize text-to-speech
-
-            print("✅ Text-to-speech initialized")
-            
-            # Initialize DeepSeek client
-            self.deepseek_client = DeepSeekClient()
-            print("✅ DeepSeek client initialized")
-            
-            return True
-        except Exception as e:
-            print(f"❌ Error initializing components: {e}")
-            return False
-
-    def start(self):
-        """Start the application"""
-        if not self.initialize_components():
-            print("❌ Failed to initialize components")
-            return
-
-        print("\n=== VTuber Chat Application ===")
-        print("Type 'exit' to quit")
-        print("Type 'voice' to start voice input")
-        print("Type 'text' to enter text input")
-        print("Type 'pygame' to launch the Live2D PyGame demo")
-        print("==============================\n")
-
-        while self.running:
-            try:
-                command = input("Enter command: ").strip().lower()
-                
-                if command == 'exit':
-                    self.running = False
-                elif command == 'voice':
-                    self.start_voice_listening()
-                elif command == 'text':
-                    text = input("Enter your message: ")
-                    if text:
-                        self.process_user_input(text)
-                elif command == 'pygame':
-                    print("Launching Live2D PyGame demo...")
-                    import subprocess
-                    try:
-                        subprocess.run(['python', 'live2d_pygame_demo.py'], check=True)
-                    except Exception as e:
-                        print(f"Error launching PyGame demo: {e}")
-                else:
-                    print("Unknown command. Available commands: exit, voice, text, pygame")
-            
-            except KeyboardInterrupt:
-                print("\nShutting down...")
-                self.running = False
-            except Exception as e:
-                print(f"Error: {e}")
-
-        self.cleanup()
-
-    def start_voice_listening(self):
-        """Start voice input mode"""
-        if self.voice_listening:
-            print("Voice input is already active")
-            return
-
-        print("\n🎤 Voice input mode activated")
-        print("Speak now (or press Enter to type instead)")
-        
-        try:
-            text = self.speech_recognizer.listen_with_voice_detection()
-            if text:
-                self.process_user_input(text)
-            else:
-                print("No speech detected")
-        except Exception as e:
-            print(f"Error in voice input: {e}")
-
-    def process_user_input(self, user_input: str):
-        """Process user input and generate response"""
-        try:
-            print("\n🤖 Processing your input...")
-            
-            # Get AI response
-            response = self.deepseek_client.get_response(user_input)
-            if not response:
-                print("❌ Failed to get AI response")
-                return
-
-            print("\n======= AI RESPONSE =======")
-            print(str(response))
-            print("==========================\n")
-            
-            # Convert response to speech
-
-
-        except Exception as e:
-            print(f"Error processing input: {e}")
-
-    def cleanup(self):
-        """Clean up resources"""
-        print("\nCleaning up...")
-        
-
-        
-        if LIVE2D_AVAILABLE and self.avatar_display_started:
-            shutdown_avatar()
-        
-        print("✅ Cleanup complete")
-
-
-if __name__ == "__main__":
-    app = VTuberChatApp()
-    app.start()
-
+# --- Future Integration Points ---
+# - Integrate AI response logic here
+# - Add Live2D/avatar display in Streamlit if desired
+# - Add more advanced UI features as needed
