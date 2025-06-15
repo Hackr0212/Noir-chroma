@@ -3,6 +3,11 @@ pyttsx3>=2.90
 langchain-core>=0.1.27
 langchain-deepseek>=0.0.1
 gradio>=4.16.2
+groq==0.28.0
+librosa==0.11.0
+spaces==0.37.0
+xxhash==3.5.0
+datasets==3.6.0
 numpy>=1.26.4
 chromadb>=0.4.22
 sentence-transformers>=2.5.1
